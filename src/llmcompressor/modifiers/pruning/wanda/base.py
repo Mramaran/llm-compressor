@@ -48,7 +48,8 @@ class WandaPruningModifier(SparsityModifierBase):
 
     :param sparsity: Sparsity to compress model to
     :param sparsity_profile: Can be set to 'owl' to use Outlier Weighed
-        Layerwise Sparsity (OWL), more information can be found
+        Layerwise Sparsity (OWL), which requires pipeline='basic'. More information
+        can be found
         in the paper https://arxiv.org/pdf/2310.05175
     :param mask_structure: String to define the structure of the mask to apply.
         Must be of the form N:M where N, M are integers that define a custom block

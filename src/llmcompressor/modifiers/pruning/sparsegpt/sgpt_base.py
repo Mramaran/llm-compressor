@@ -7,6 +7,7 @@ from typing import Any
 import numpy
 import torch
 from compressed_tensors.offload import get_execution_device
+from compressed_tensors.registry import standardize_lookup_name
 from compressed_tensors.utils import match_named_modules, match_targets
 from loguru import logger
 from pydantic import Field, PrivateAttr, field_validator, model_validator
@@ -48,11 +49,6 @@ class SparsityModifierBase(Modifier):
     _module_sparsities: dict[torch.nn.Module, float] = PrivateAttr(default_factory=dict)
     _sequential_targets: list[str] = PrivateAttr(default_factory=list)
     _owl_sparsities: dict[str, float] = PrivateAttr(default_factory=dict)
-
-    @property
-    def required_pipeline(self) -> str | None:
-        # OWL compares statistics across all layers before choosing any sparsities.
-        return "basic" if self.sparsity_profile == "owl" else None
 
     @field_validator("sequential_update", mode="before")
     def validate_sequential_update(cls, value: bool) -> bool:
@@ -118,6 +114,13 @@ class SparsityModifierBase(Modifier):
         :param state: session state storing input model and calibration data
         """
         if self.sparsity_profile == "owl":
+            pipeline = kwargs.get("pipeline")
+            if not pipeline or standardize_lookup_name(pipeline) != "basic":
+                raise ValueError(
+                    "OWL sparsity profiling requires pipeline='basic'; set it "
+                    "explicitly to profile all layers before pruning. "
+                    f"Got pipeline={pipeline!r}"
+                )
             self._sequential_targets = infer_sequential_targets(
                 state.model, sequential_targets=kwargs.get("sequential_targets")
             )
@@ -126,8 +129,6 @@ class SparsityModifierBase(Modifier):
     def on_calibration_start(self, state: State, event: Event, **kwargs):
         modules = kwargs.get("modules")
         if self.sparsity_profile == "owl":
-            if modules is not None:
-                raise ValueError("OWL sparsity profiling requires pipeline='basic'.")
             logger.info("Using OWL to infer layer sparsities before calibration")
             layers = dict(match_named_modules(state.model, self._sequential_targets))
             self._owl_sparsities = self._infer_owl_layer_sparsity(

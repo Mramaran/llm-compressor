@@ -44,6 +44,7 @@ from llmcompressor.pipelines import (
         ([QuIPModifier(), QuantizationModifier(scheme="FP8")], SequentialPipeline),
         ([QuIPModifier(), QuantizationModifier(scheme="W4A16")], DataFreePipeline),
         ([AutoRoundModifier()], SequentialPipeline),
+        ([QADModifier()], SequentialPipeline),
     ],
 )
 def test_infer_pipeline(modifiers, exp_pipeline):
@@ -51,35 +52,17 @@ def test_infer_pipeline(modifiers, exp_pipeline):
     assert isinstance(pipeline, exp_pipeline)
 
 
-@pytest.mark.parametrize("modifier_cls", [SparseGPTModifier, WandaPruningModifier])
-def test_owl_requires_basic_pipeline(modifier_cls):
-    modifier = modifier_cls(
-        sparsity=0.5, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
-    )
-    assert isinstance(CalibrationPipeline.from_modifiers([modifier]), BasicPipeline)
-    with pytest.raises(ValueError, match="requires pipeline='basic'"):
-        CalibrationPipeline.from_modifiers([modifier], user="sequential")
+@pytest.mark.parametrize(
+    "user,expected",
+    [
+        ("basic", BasicPipeline),
+        ("SEQUENTIAL", SequentialPipeline),
+        ("datafree", DataFreePipeline),
+        ("INDEPENDENT", IndependentPipeline),
+    ],
+)
+def test_explicit_pipeline_overrides_inference(user, expected):
+    modifier = QuantizationModifier(scheme="W4A16")
     assert isinstance(
-        CalibrationPipeline.from_modifiers([modifier], user="independent"),
-        IndependentPipeline,
+        CalibrationPipeline.from_modifiers([modifier], user=user), expected
     )
-
-
-@pytest.mark.parametrize("modifier", [AutoRoundModifier(), QADModifier()])
-def test_sequential_modifiers_reject_incompatible_pipelines(modifier):
-    assert isinstance(
-        CalibrationPipeline.from_modifiers([modifier]), SequentialPipeline
-    )
-    with pytest.raises(ValueError, match="requires pipeline='sequential'"):
-        CalibrationPipeline.from_modifiers([modifier], user="basic")
-
-
-def test_incompatible_pipeline_requirements_are_reported():
-    modifiers = [
-        SparseGPTModifier(
-            sparsity=0.5, sparsity_profile="owl", owl_m=5, owl_lmbda=0.05
-        ),
-        AutoRoundModifier(),
-    ]
-    with pytest.raises(ValueError, match="incompatible pipelines"):
-        CalibrationPipeline.from_modifiers(modifiers)

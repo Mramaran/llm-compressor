@@ -58,7 +58,7 @@ def test_owl_defers_statistics_until_basic_pipeline_start():
         "_infer_owl_layer_sparsity",
         return_value={"0": 0.4, "1": 0.6},
     ) as infer:
-        modifier.on_initialize(state, sequential_targets=["0", "1"])
+        modifier.on_initialize(state, sequential_targets=["0", "1"], pipeline="basic")
         infer.assert_not_called()
         assert not modifier._hooks
 
@@ -91,7 +91,8 @@ def test_owl_statistics_do_not_dispatch_compression_events():
 
 
 @pytest.mark.parametrize("modifier_cls", [SparseGPTModifier, WandaPruningModifier])
-def test_owl_basic_pipeline_completes(modifier_cls):
+@pytest.mark.parametrize("pipeline", ["basic", "BASIC"])
+def test_owl_basic_pipeline_completes(modifier_cls, pipeline):
     class Model(torch.nn.Module):
         def __init__(self):
             super().__init__()
@@ -115,14 +116,37 @@ def test_owl_basic_pipeline_completes(modifier_cls):
             recipe=modifier,
             calib_data=batches,
             sequential_targets=["layers.0", "layers.1"],
+            pipeline=pipeline,
         )
         assert not modifier._hooks
-        CalibrationPipeline.from_modifiers([modifier])(model, batches, None)
+        CalibrationPipeline.from_modifiers([modifier], user=pipeline)(
+            model, batches, None
+        )
         assert not modifier._hooks
         session.finalize()
 
     for layer in model.layers:
         assert 0.4 < (layer[0].weight == 0).float().mean() < 0.6
+
+
+@pytest.mark.parametrize("modifier_cls", [SparseGPTModifier, WandaPruningModifier])
+@pytest.mark.parametrize("pipeline", [None, "sequential", "datafree", "independent"])
+def test_owl_rejects_incompatible_pipeline_before_profiling(modifier_cls, pipeline):
+    modifier = modifier_cls(
+        sparsity=0.5, sparsity_profile="owl", owl_m=1, owl_lmbda=0.05
+    )
+    model = torch.nn.Sequential(torch.nn.Linear(4, 4))
+    with patch.object(modifier_cls, "_infer_owl_layer_sparsity") as profile:
+        with pytest.raises(ValueError, match="requires pipeline='basic'"):
+            CompressionSession().initialize(
+                model=model,
+                recipe=modifier,
+                pipeline=pipeline,
+                sequential_targets=["Linear"],
+            )
+    profile.assert_not_called()
+    assert not modifier.initialized
+    assert not modifier._hooks
 
 
 @pytest.mark.parametrize(
