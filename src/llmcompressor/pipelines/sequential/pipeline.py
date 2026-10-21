@@ -148,10 +148,15 @@ class SequentialPipeline(CalibrationPipeline):
         )
         num_subgraphs = len(subgraphs)
         persistent_modules = find_modules_outside_subgraphs(model, subgraphs)
-        if persistent_modules:
-            subgraph_onload_modules(persistent_modules)
+        persistent_offload_kwargs = (
+            subgraph_onload_modules(persistent_modules) if persistent_modules else {}
+        )
 
-        LifecycleCallbacks.calibration_start(modules=list(persistent_modules.values()))
+        LifecycleCallbacks.calibration_start(
+            modules=list(persistent_modules.values()),
+            onloaded_modules=persistent_modules,
+            offload_kwargs=persistent_offload_kwargs,
+        )
 
         with contextlib.ExitStack() as stack:
             stack.enter_context(calibration_forward_context(model))
@@ -261,13 +266,16 @@ class SequentialPipeline(CalibrationPipeline):
                 ### START OF ONLOAD ###
                 #######################
                 offload_kwargs = subgraph_onload_modules(subgraph_modules)
-                modules = list(subgraph_modules.values())
 
                 # Decompress only this subgraph after onloading it. The sequential
                 # start callback then performs scope-local initialization.
                 if dataset_args.layerwise_decompression:
-                    decompress_subgraph_modules(modules)
-                LifecycleCallbacks.sequential_epoch_start(modules)
+                    decompress_subgraph_modules(list(subgraph_modules.values()))
+                LifecycleCallbacks.sequential_epoch_start(
+                    list(subgraph_modules.values()),
+                    onloaded_modules=subgraph_modules,
+                    offload_kwargs=offload_kwargs,
+                )
 
                 # do a preliminary pass to trigger modifier hooks
                 for batch_idx, inputs in _get_batches(
@@ -296,7 +304,11 @@ class SequentialPipeline(CalibrationPipeline):
                 if not has_next_subgraph:
                     session.state.sequential_activations = None
 
-                LifecycleCallbacks.sequential_epoch_end(modules)
+                LifecycleCallbacks.sequential_epoch_end(
+                    list(subgraph_modules.values()),
+                    onloaded_modules=subgraph_modules,
+                    offload_kwargs=offload_kwargs,
+                )
 
                 if dataset_args.propagate_error or dataset_args.log_sequential_error:
                     # this pass does not trigger modifier hooks; it captures
@@ -334,7 +346,7 @@ class SequentialPipeline(CalibrationPipeline):
                         )
                 # Repack weights before offloading the subgraph's tensors.
                 if dataset_args.layerwise_compression:
-                    compress_subgraph_modules(modules)
+                    compress_subgraph_modules(list(subgraph_modules.values()))
 
                 subgraph_offload_modules(subgraph_modules, offload_kwargs)
                 #######################
@@ -342,4 +354,9 @@ class SequentialPipeline(CalibrationPipeline):
                 #######################
 
             # redundant, finish any remaining compression
-            LifecycleCallbacks.calibration_end()
+            LifecycleCallbacks.calibration_end(
+                onloaded_modules=persistent_modules,
+                offload_kwargs=persistent_offload_kwargs,
+            )
+            if persistent_modules:
+                subgraph_offload_modules(persistent_modules, persistent_offload_kwargs)
