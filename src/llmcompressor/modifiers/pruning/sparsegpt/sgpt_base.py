@@ -153,7 +153,6 @@ class SparsityModifierBase(Modifier):
                 f"{type(self).__name__} received {len(self.sparsity)} sparsity values, "
                 f"but model has {len(target_layers)} target layers"
             )
-        module_scope = None if modules is None else set(modules)
         for index, (layer_name, layer) in enumerate(target_layers):
             match self.sparsity:
                 case list():
@@ -161,9 +160,9 @@ class SparsityModifierBase(Modifier):
                 case _:
                     layer_sparsity = self.sparsity
 
-            for name, module in match_named_modules(layer, PRUNABLE_LAYER_TYPES):
-                if module_scope is not None and module not in module_scope:
-                    continue
+            for name, module in match_named_modules(
+                layer, PRUNABLE_LAYER_TYPES, modules=modules
+            ):
                 name = ".".join(part for part in (layer_name, name) if part)
 
                 if match_targets(name, module, self.ignore):
