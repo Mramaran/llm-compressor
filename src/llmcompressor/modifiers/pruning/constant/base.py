@@ -50,11 +50,12 @@ class ConstantPruningModifier(Modifier, LayerParamMasking):
             )
         self.enable_masks()
 
-    def on_calibration_start(self, state: State, event: Event, **kwargs):
-        self._initialize_scope(state, kwargs.get("modules"))
-
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
     ):
         self._initialize_scope(state, modules)
 

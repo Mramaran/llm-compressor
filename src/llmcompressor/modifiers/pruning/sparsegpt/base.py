@@ -41,7 +41,7 @@ class SparseGPTModifier(SparsityModifierBase):
 
     Lifecycle:
 
-    - on_calibration_start / on_sequential_epoch_start
+    - on_calibration_start
         - register_hook(module, calibrate_module, "forward")
     - on_sequential_epoch_end
         - sparsify_weight
@@ -114,11 +114,13 @@ class SparseGPTModifier(SparsityModifierBase):
                 self._num_samples[module],
             )
 
-    def compress_modules(self):
+    def compress_modules(self, modules: list[torch.nn.Module] | None = None):
         """
         Sparsify modules which have been calibrated
         """
         for module in list(self._num_samples.keys()):
+            if modules is not None and module not in modules:
+                continue
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
             num_samples = self._num_samples[module]

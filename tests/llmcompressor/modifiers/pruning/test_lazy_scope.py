@@ -13,7 +13,7 @@ from llmcompressor.pipelines import CalibrationPipeline
 
 @pytest.mark.unit
 @pytest.mark.parametrize("modifier_cls", [SparseGPTModifier, WandaPruningModifier])
-def test_sequential_start_registers_hooks_only_in_scope(modifier_cls):
+def test_calibration_start_registers_hooks_only_in_scope(modifier_cls):
     model = torch.nn.ModuleDict(
         {
             "layers": torch.nn.ModuleList(
@@ -27,16 +27,23 @@ def test_sequential_start_registers_hooks_only_in_scope(modifier_cls):
     old_module = model.layers[0][0]
     model.layers[0][0] = torch.nn.Linear(4, 4)
 
-    modifier.on_sequential_epoch_start(
+    modifier.on_sequential_epoch_initialize(
         state=state,
         event=None,
         modules=list(model.layers[0].modules()),
     )
+    assert not modifier._hooks
+    modifier.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
 
     assert model.layers[0][0] in modifier._module_names
     assert model.layers[1][0] not in modifier._module_names
     assert len(modifier._hooks) == 1
     assert not old_module._forward_hooks
+    modifier.on_calibration_end(state, None, modules=list(model.layers[0].modules()))
+    assert not modifier._hooks
+    modifier.on_calibration_start(state, None, modules=list(model.layers[0].modules()))
+    assert len(modifier._hooks) == 1
+    modifier.remove_hooks()
 
 
 @pytest.mark.unit
@@ -62,6 +69,7 @@ def test_owl_defers_statistics_until_basic_pipeline_start():
         infer.assert_not_called()
         assert not modifier._hooks
 
+        modifier.on_sequential_epoch_initialize(state, None)
         modifier.on_calibration_start(state, None)
         infer.assert_called_once()
 
@@ -165,12 +173,13 @@ def test_mask_setup_is_deferred_and_scoped(modifier):
     assert not modifier.started_
     assert all(not hasattr(module, "mask") for module in model)
 
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[])
     session.lifecycle.event(EventType.CALIBRATION_START, modules=[])
     assert not modifier.parameterized_layers_
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[0]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
     assert hasattr(model[0], "mask")
     assert not hasattr(model[1], "mask")
-    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_START, modules=[model[0]])
+    session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_INITIALIZE, modules=[model[0]])
     assert len(modifier.parameterized_layers_) == 1
     session.lifecycle.event(EventType.SEQUENTIAL_EPOCH_END, modules=[model[0]])
     if isinstance(modifier, MagnitudePruningModifier):

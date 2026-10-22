@@ -104,7 +104,7 @@ class SparsityModifierBase(Modifier):
         raise NotImplementedError()
 
     @abstractmethod
-    def compress_modules(self):
+    def compress_modules(self, modules: list[torch.nn.Module] | None = None):
         raise NotImplementedError()
 
     def on_initialize(self, state: "State", **kwargs) -> bool:
@@ -127,19 +127,21 @@ class SparsityModifierBase(Modifier):
         return True
 
     def on_calibration_start(self, state: State, event: Event, **kwargs):
-        modules = kwargs.get("modules")
+        self._register_calibration_hooks(state.model, kwargs.get("modules"))
+
+    def on_sequential_epoch_initialize(
+        self,
+        state: State,
+        event: Event,
+        modules: list[torch.nn.Module] | None = None,
+        **kwargs,
+    ):
         if self.sparsity_profile == "owl":
             logger.info("Using OWL to infer layer sparsities before calibration")
             layers = dict(match_named_modules(state.model, self._sequential_targets))
             self._owl_sparsities = self._infer_owl_layer_sparsity(
                 state.model, layers, state.data.calib
             )
-        self._register_calibration_hooks(state.model, modules)
-
-    def on_sequential_epoch_start(
-        self, state: State, event: Event, modules: list[torch.nn.Module], **kwargs
-    ):
-        self._register_calibration_hooks(state.model, modules)
 
     def _register_calibration_hooks(
         self, model: torch.nn.Module, modules: list[torch.nn.Module] | None = None
@@ -173,7 +175,7 @@ class SparsityModifierBase(Modifier):
                 if isinstance(module, torch.nn.Embedding):
                     continue
 
-                if module in self._module_names:
+                if module in self._hook_owners.values():
                     continue
 
                 if self._owl_sparsities:
@@ -207,10 +209,10 @@ class SparsityModifierBase(Modifier):
                 self.register_hook(module, self.calibrate_module, "forward")
 
     def on_sequential_epoch_end(self, state: State, event: Event, **kwargs):
-        self.compress_modules()
+        self.compress_modules(kwargs.get("modules"))
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
-        self.remove_hooks()
+        self.remove_hooks(modules=kwargs.get("modules"))
 
     def _infer_owl_layer_sparsity(
         self,

@@ -54,6 +54,7 @@ class BasicPipeline(CalibrationPipeline):
         if use_loss_mask:
             session.state.loss_masks = []
 
+        LifecycleCallbacks.sequential_epoch_initialize()
         LifecycleCallbacks.calibration_start()
 
         with contextlib.ExitStack() as stack:
