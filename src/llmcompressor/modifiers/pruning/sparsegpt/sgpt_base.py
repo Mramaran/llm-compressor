@@ -174,6 +174,7 @@ class SparsityModifierBase(Modifier):
                 if isinstance(module, torch.nn.Embedding):
                     continue
 
+                # Overlapping targets can reach the same module within this call.
                 if module in self._hook_owners.values():
                     continue
 

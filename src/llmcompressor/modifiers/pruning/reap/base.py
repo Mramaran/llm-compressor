@@ -83,7 +83,6 @@ class REAPPruningModifier(Modifier):
     )
     _cpu_pg: Any = PrivateAttr(default=None)
     _retained_experts: dict[str, list[int]] = PrivateAttr(default_factory=dict)
-    _hooked_moe_layers: set[str] = PrivateAttr(default_factory=set)
 
     @model_validator(mode="after")
     def _validate_sparsity(self) -> "REAPPruningModifier":
@@ -195,7 +194,7 @@ class REAPPruningModifier(Modifier):
             )
 
         for layer_name in self._moe_attrs.moe_layer_names:
-            if layer_name in self._hooked_moe_layers:
+            if layer_name in self._retained_experts:
                 continue
             module = model.get_submodule(layer_name)
             if module_scope is not None and module not in module_scope:
@@ -225,7 +224,6 @@ class REAPPruningModifier(Modifier):
             self.register_hook(
                 experts, partial(self._experts_block_hook, layer_name), "forward"
             )
-            self._hooked_moe_layers.add(layer_name)
 
     def on_calibration_end(self, state: State, event: Event, **kwargs):
         self.remove_hooks(modules=kwargs.get("modules"))
@@ -244,7 +242,6 @@ class REAPPruningModifier(Modifier):
 
         self._saliency_trackers.clear()
         self._norm_buffers.clear()
-        self._hooked_moe_layers.clear()
         if is_distributed():
             dist.destroy_process_group(group=self._cpu_pg)
             self._cpu_pg = None
