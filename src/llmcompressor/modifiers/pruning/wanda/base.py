@@ -103,8 +103,8 @@ class WandaPruningModifier(SparsityModifierBase):
         """
         Sparsify modules which have been calibrated
         """
-        for module in list(self._num_samples.keys()):
-            if modules is not None and module not in modules:
+        for module in list(self._num_samples) if modules is None else modules:
+            if module not in self._num_samples:
                 continue
             name = self._module_names[module]
             sparsity = self._module_sparsities[module]
